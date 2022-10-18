@@ -131,6 +131,14 @@ module Rouge
         next TeX if matches?(/\A\s*(?:\\|%)/)
         next Apex
       end
+
+      disambiguate '*.st' do
+        next StructuredText if contains?('END_PROGRAM')
+        next StructuredText if matches?(/end_(?:program|var|function)/i)
+        #next StructuredText if matches?(/END_(?:\w)*/)
+        #next Smalltalk if matches?(/\.$/m)
+        Smalltalk
+      end
     end
   end
 end

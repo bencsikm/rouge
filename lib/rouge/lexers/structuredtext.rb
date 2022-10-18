@@ -3,62 +3,104 @@
 
 module Rouge
   module Lexers
-    class ST < RegexLexer
-      tag 'st'
-      filenames '*.st'
-      mimetypes 'text/x-chdr', 'text/x-csrc'
-
+    class StructuredText < RegexLexer
       title "Structured Text"
       desc "IEC 61131-3 Structured Text programming language"
 
+      tag 'structuredtext'
+      aliases 'iecst', 'scl', 'stl', 'structured-text'
+      filenames '*.st'
+      
+      mimetypes 'text/x-structuretext'
+
+      
+
       # optional comment or whitespace
-      ws = %r((?:\s|//.*?\n|/[*].*?[*]/)+)
-      id = /[a-zA-Z_][a-zA-Z0-9_]*/
-
-      def self.keywords
+      #ws = %r((?:\s|//.*?\n|/[*].*?[*]/)+)
+      #id = /[a-zA-Z_][a-zA-Z0-9_]*/
+      <<-DOC
+      def self.keywords    
         @keywords ||= Set.new %w(
-          auto break case const continue default do else enum extern
-          for goto if register restricted return sizeof static struct
-          switch typedef union volatile virtual while
-
-          _Alignas _Alignof _Atomic _Generic _Imaginary
-          _Noreturn _Static_assert _Thread_local
+          if then end_if elsif else case of end_case
+          to do by while repeat until end_while end_repeat for end_for from
+          public private protected retain non_retain internal constant
+          or and not xor le ge eq ne ge lt
+          return exit at task with using extend
+          nil true false
+          action end_action
+          program end_program function end_function function_block end_function_block configuration
+          end_configuration  transition end_transition type end_type struct end_struct step
+          end_step initial_step namespace end_namespace channel end_channel library end_library folder end_folder resource end_resource
+          var var_global end_var var_input var_external var_out var_output var_in_out var_temp var_interval var_access var_config
+          method end_method property end_property interface end_interface
         )
       end
 
       def self.keywords_type
         @keywords_type ||= Set.new %w(
-          int long float short double char unsigned signed void
-
-          jmp_buf FILE DIR div_t ldiv_t mbstate_t sig_atomic_t fpos_t
-          clock_t time_t va_list size_t ssize_t off_t wchar_t ptrdiff_t
-          wctrans_t wint_t wctype_t
-
-          _Bool _Complex int8_t int16_t int32_t int64_t
-          uint8_t uint16_t uint32_t uint64_t int_least8_t
-          int_least16_t int_least32_t int_least64_t
-          uint_least8_t uint_least16_t uint_least32_t
-          uint_least64_t int_fast8_t int_fast16_t int_fast32_t
-          int_fast64_t uint_fast8_t uint_fast16_t uint_fast32_t
-          uint_fast64_t intptr_t uintptr_t intmax_t
-          uintmax_t
-
-          char16_t char32_t
+          array pointer int sint dint lint usint uint udint ulint real lreal
+          time date time_of_day date_and_time dt tod 
+          wstring string bool byte word dword lword ref_to any_num any_int any_string
+          char wchar bsint bint bdint hsint hint hdint
         )
       end
 
-      def self.reserved
-        @reserved ||= Set.new %w(
-          __asm __int8 __based __except __int16 __stdcall __cdecl
-          __fastcall __int32 __declspec __finally __int61 __try __leave
-          inline _inline __inline naked _naked __naked restrict _restrict
-          __restrict thread _thread __thread typename _typename __typename
+      def self.name_function
+        @name_function ||= Set.new %w(
+          abs acos asin atan cos exp ln log sin sqrt tan sizeof
+          shl shr sar rol ror mod
         )
       end
+      DOC
 
-      def self.builtins
-        @builtins ||= []
+      keywords = %w(
+        if then end_if elsif else case of end_case
+        to do by while repeat until end_while end_repeat for end_for from
+        public private protected retain non_retain internal constant
+        or and not xor le ge eq ne ge lt
+        return exit at task with using extend
+        nil true false
+        action end_action
+        program end_program function end_function function_block end_function_block configuration
+        end_configuration  transition end_transition type end_type struct end_struct step
+        end_step initial_step namespace end_namespace channel end_channel library end_library folder end_folder resource end_resource
+        var var_global end_var var_input var_external var_out var_output var_in_out var_temp var_interval var_access var_config
+        method end_method property end_property interface end_interface
+      )
+
+
+
+      keywords_type =  %w(
+        array pointer int sint dint lint usint uint udint ulint real lreal
+        time date time_of_day date_and_time dt tod 
+        wstring string bool byte word dword lword ref_to any_num any_int any_string
+        char wchar bsint bint bdint hsint hint hdint
+      )
+
+
+
+      name_function = %w(
+        abs acos asin atan cos exp ln log sin sqrt tan sizeof
+        shl shr sar rol ror mod
+      )
+
+      state :root do
+        mixin :whitespace
+        
       end
+
+      state :whitespace do
+        rule %r/\s+/, Text::Whitespace
+        rule %r/(?<!_)(?:(#{keywords.join('|')}))(?=\s|;)/i, Keyword
+        rule %r/(\/\/.+)/, Comment::Single
+        rule %r/.+/i, Other
+      end
+
+
+
+      <<-DOC
+      =begin
+      # old code for examples
 
       start { push :bol }
 
@@ -74,7 +116,8 @@ module Rouge
       # :expr_bol is the same as :bol but without labels, since
       # labels can only appear at the beginning of a statement.
       state :bol do
-        rule %r/#{id}:(?!:)/, Name::Label
+        #remove \ in front of # below
+        rule %r/\#{id}:(?!:)/, Name::Label
         mixin :expr_bol
       end
 
@@ -135,9 +178,9 @@ module Rouge
         mixin :expr_whitespace
         rule %r(
           ([\w*\s]+?[\s*]) # return arguments
-          (#{id})          # function name
+          ( # {id})          # function name
           (\s*\([^;]*?\))  # signature
-          (#{ws}?)({|;)    # open brace or semicolon
+          (# {ws}?)({|;)    # open brace or semicolon
         )mx do |m|
           # TODO: do this better.
           recurse m[1]
@@ -195,6 +238,9 @@ module Rouge
         rule %r/^\s*#\s*endif\b.*?(?<!\\)\n/m, Comment, :pop!
         rule %r/.*?\n/, Comment
       end
+
+      =end 
+      DOC
     end
   end
 end
