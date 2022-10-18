@@ -132,6 +132,13 @@ module Rouge
         next Apex
       end
 
+      disambiguate '*.pp' do
+        next Pascal if matches?(/\b(function|begin|var)\b/)
+        next Pascal if matches?(/\b(end(;|\.))/)
+
+        Puppet
+      end
+
       disambiguate '*.st' do
         next StructuredText if contains?('END_PROGRAM')
         next StructuredText if matches?(/end_(?:program|var|function)/i)
