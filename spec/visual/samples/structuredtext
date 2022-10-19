@@ -1,479 +1,414 @@
+#pragma using math
+#DEFINE THIS_IS_A_CONSTANT 1
 
-// This is a comment
-
-(* Constructor
+FUNCTION GLOBAL Statistics::strings
+    VAR
+        stringArray : ARRAY[0..29] OF CHAR;
+    END_VAR
     
-    Initialize variables 
+    _memset(#stringArray[0], 0, 30);
+    _strcpy(#stringArray[0], "This is a literal string");
+
+    stringArray[0] = 'a';
+    stringArray[0] = 'b';
+    stringArray[0] = 'c';
+
+END_FUNCTION
+
+
+(*
+    Gradient
+    
+    Same idea as MSE in that it was written for univariate. Can be updated for multivariate if needed.
+    Calculates the new gradient values or thetas using the partial derivative of the MSE function and applying a learning rate.
+    
+    theta0 = theta0 - alpha * ( d/d*theta0 J(theta0, theta1) )
+    
+    where J(theta0, theta1) is the MSE function
+    
+    Original theta value minus the learning rate times the partial derivative of the MSE function with respect to the specific theta.
+    This is done for every theta value. 
+    
+    Parameters:
+        xBuffer 	: ^REAL;    Pointer to array of input variables (independent variable)
+        yBuffer 	: ^REAL;    Pointer to array of output variables (dependent variable)
+        thetaBuffer : ^REAL;    Pointer to array of theta values (Requires 2 values). These values will be updated as the output of the method.
+        bufferSize 	: DINT;     Number of samples
+		alpha 	    : REAL;     Learning rate. Start with something such as 0.1 and increase/decrease as needed by a multiple of 3
+                                Round to keep simple. i.e. 10, 3, 1, 0.3, 0.1, 0.03, 0.01
+    Ouputs:
+        OutParam    : DINT;     0 indicates no error. Less than 0 indicates an error. See defines.
+                                
+*)
+FUNCTION GLOBAL Statistics::gradient
+	VAR_INPUT
+		xBuffer 	: ^REAL;
+		yBuffer 	: ^REAL;
+		thetaBuffer : ^REAL;
+		bufferSize 	: DINT;
+		alpha 	    : REAL;
+	END_VAR
+	VAR_OUTPUT
+		OutParam 	: DINT;
+	END_VAR
+    VAR
+        theta0      : REAL;
+        theta1      : REAL;
+        sum0        : LREAL;
+        sum1        : LREAL;
+        i           : DINT;
+        xVal        : REAL;
+        yVal        : REAL;
+    END_VAR
+
+    if xBuffer = NIL | yBuffer = NIL | thetaBuffer = NIL then
+        OutParam := ERROR_INVALID_POINTER_REFERENCE;
+        return;
+    elsif bufferSize < MIN_BUFFER_SIZE then
+        OutParam := ERROR_INVALID_BUFFER_SIZE;
+        return;
+    else
+        OutParam := ERROR_NONE;
+    end_if;
+    
+    // get theta values
+    theta0 := thetaBuffer^;
+    theta1 := (thetaBuffer + sizeof(REAL))^;
+    
+    sum0 := 0.0;
+    sum1 := 0.0;
+    
+    // summation
+    FOR i := 0 TO bufferSize - 1 DO
+    
+        xVal := (xBuffer + i*sizeof(REAL))^;
+        YVal := (yBuffer + i*sizeof(REAL))^;
+
+        sum0 += (theta0 + (theta1 * xVal) - yVal);
+        sum1 += (theta0 + (theta1 * xVal) - yVal) * xVal;
+        
+    END_FOR;
+    
+    // divide by sample size
+    thetaBuffer^                   := theta0 - alpha * to_real(sum0 / to_lreal(bufferSize));
+    (thetaBuffer + sizeof(REAL))^  := theta1 - alpha * to_real(sum1 / to_lreal(bufferSize));
+
+END_FUNCTION
+
+(*
+    Gradient Descent - A form of linear regression
+    
+    Once complete, the resulting h(x) will be a best fit line calculated from the discrete data, y(x)
+        
+    Continually calculate new gradients using the learning rate.
+    Checks the cost (error) of the newly calculated gradient values.
+    The cost should continually drecrease until the cost (error) converges. 
+    
+    Convergence is equated to an incrementally small change in the cost after new gradients are calculated.
+    
+    Parameters:
+        xBuffer 	: ^REAL;    Pointer to array of input variables (independent variable)
+        yBuffer 	: ^REAL;    Pointer to array of output variables (dependent variable)
+        theta 	    : ^REAL;    Pointer to array of theta values. These values will be updated as the output of the method.
+        bufferSize 	: DINT;     Number of samples
+		alpha 	    : REAL;     Learning rate. Start with something such as 0.1 and increase/decrease as needed by a multiple of 3
+                                Round to keep simple. i.e. 10, 3, 1, 0.3, 0.1, 0.03, 0.01
+    Ouputs:
+        cost 	    : REAL;     MSE. If 0, then there is no error between your predicted value and actual value. 
+
+*)
+FUNCTION GLOBAL Statistics::gradientDescent
+	VAR_INPUT
+		xBuffer 	: ^REAL;
+		yBuffer 	: ^REAL;
+		thetaBuffer : ^REAL;
+		bufferSize 	: DINT;
+		alpha 	    : REAL;
+	END_VAR
+	VAR_OUTPUT
+		cost 	    : REAL;
+	END_VAR
+    VAR
+    	i           : DINT;
+        lastCost    : REAL;
+        errorCheck  : DINT;
+    END_VAR
+    
+    // Calculate an initial cost to determine that the gradient is descending
+    lastCost := meanSquaredError(xBuffer, yBuffer, thetaBuffer, bufferSize);
+    
+    if lastCost < ERROR_NONE then
+        cost := lastCost;
+        return;
+    end_if;
+
+    // gradient descent process 
+    FOR i := 1 TO MAX_DESCENT_ITERATION_COUNT - 1 DO
+        
+        // calculate new thetas using learning rate
+        errorCheck := gradient(xBuffer, yBuffer, thetaBuffer, bufferSize, alpha);
+        if errorCheck < ERROR_NONE then
+            cost := errorCheck;
+            exit;
+        end_if;
+
+        // get new cost (error) value associated with the new thetas
+        cost := meanSquaredError(xBuffer, yBuffer, thetaBuffer, bufferSize);
+
+        // check for convergence
+        if cost < ERROR_NONE | (lastCost > cost & lastCost - cost < CONVERGENCE_VALUE) then
+            exit;
+        end_if;
+        
+        lastCost := cost;
+        
+    END_FOR;
+    
+    if i >= MAX_DESCENT_ITERATION_COUNT then
+        cost := ERROR_FAILED_TO_CONVERGE;
+    end_if;
+    
+END_FUNCTION
+
+(*
+    Mean
+    
+    Calculates the mean of a buffer of values
+    
+    Parameters:
+        buffer 	    : ^REAL;    buffer of values
+		bufferSize 	: DINT;     size of the buffer
+    
+    Output:
+        mu 	        : REAL;         mean of the buffer
     
 *)
-FUNCTION GainControl::GainControl
-	VAR_OUTPUT
-		ret_code 	: ConfStates;
-	END_VAR
-    
-    // object pointers to the gainPhase. 
-    thePhaseOf[PHASE_1]     := #GainPhase1.Status;
-    thePhaseOf[PHASE_2]     := #GainPhase2.Status;
-    thePhaseOf[PHASE_3]     := #GainPhase3.Status;
-    
-    theOLPhaseOf[PHASE_1]   := #OpenLoopPhase1.Status;
-    theOLPhaseOf[PHASE_2]   := #OpenLoopPhase2.Status;
-    theOLPhaseOf[PHASE_3]   := #OpenLoopPhase3.Status;
-    
-    flag_shotInProgress     := FALSE;
-    flag_endOfShot          := FALSE;
-    flag_phase2Initialized  := FALSE;
-    
-    resetManualStateMachine();
-    resetAutoStateMachine();
-    resetOutputs();
-    
-    OpenLoopPhase1.resetAutoActuals();
-    OpenLoopPhase2.resetAutoActuals();
-    OpenLoopPhase3.resetAutoActuals();
-    
-	ret_code := C_OK;
-    
-END_FUNCTION
-
-
-FUNCTION VIRTUAL GLOBAL GainControl::RtWork
+FUNCTION GLOBAL Statistics::mean
 	VAR_INPUT
-		EAX 	: UDINT;
+		buffer 	    : ^REAL;
+		bufferSize 	: DINT;
 	END_VAR
 	VAR_OUTPUT
-		state (EAX) 	: UDINT;
+		mu 	        : REAL;
 	END_VAR
+    VAR
+    	i           : DINT;
+        sum         : REAL;
+    END_VAR
     
-    
-    // Not enabled - the rest of the class is mostly ignored. 
-    if isEnabled = 0 then
-        resetManualStateMachine();
-        resetAutoStateMachine();
-        OpenLoopPhase1.resetAutoActuals();
-        OpenLoopPhase2.resetAutoActuals();
-        OpenLoopPhase3.resetAutoActuals();
-        flag_phase2Initialized  := FALSE;
-        state := READY;
+    if buffer = NIL then
+        mu := ERROR_INVALID_POINTER_REFERENCE;
+        return;
+    elsif bufferSize < MIN_BUFFER_SIZE then
+        mu := ERROR_INVALID_BUFFER_SIZE;
         return;
     end_if;
     
-    if isShotInProgress() then
+    sum := 0.0;
     
-        case controlMode of
-        GAIN_MODE_REGULAR, 
-        GAIN_MODE_MANUAL: 
-            manualStateMachine();
-        GAIN_MODE_AUTO: 
-            autoStateMachine();
-        end_case;
-        
-    else
-        resetManualStateMachine();
-        resetAutoStateMachine();
-    end_if;
-
-
-	state := READY;
-
+    //mu = sum(buffer) / size
+    for i := 0 to bufferSize - 1 do
+        sum += (buffer + i * sizeof(REAL))^;
+    end_for;
+    
+    mu := sum / to_real(bufferSize);
+    
 END_FUNCTION
 
-FUNCTION VIRTUAL GLOBAL GainControl::Background
-	VAR_INPUT
-		EAX 	: UDINT;
-	END_VAR
-	VAR_OUTPUT
-		state (EAX) 	: UDINT;
-	END_VAR
+(*
+    Mean Squared Error - Cost Function (MSE)
+
+    Originally written as a univariate function (assumes 1 feature)
+    To update to a multivariate function, add the number of features as an input.
+    Then add a theta for each additional feature, and an X buffer for each feature set.
+    theta0 is always present. theta1 for 1st feature, theta2 for 2nd feature... and so on
     
-    if flag_endOfShot then
-        flag_endOfShot := FALSE;
+    Cost Function:
+    
+        J(theta0, theta1) = (1 / 2m) * sum( (h(x) - y(x))^2 )
         
-        if OpenLoopPhase1.openLoopSuccess() & OpenLoopPhase2.openLoopSuccess() then
-            OLAT.initialize(MeltPressureBuffer.GetBuffer(0));
-            OLAT.findSlope(PHASE_1);
-            OLAT.findSlope(PHASE_2);
-            OLAT.intersection();
-            OLAT.setControlValue(cv1:=OpenLoopPhase1.getActualFeedForward(), cv2:=OpenLoopPhase2.getActualFeedForward());
-            meltPressureMax := meltPressureMax.Read();
-            OLAT.setMaxMeltPressure(maxMelt:= meltPressureMax);
+        The larger the value, the greater the error between your predicted and actual values
+        
+        Where,
+            x       -> input or independent variable,   i.e. time
+            y(x)    -> output or dependent variable,    i.e. melt pressure
+            h(x)    -> predicted values,                i.e. best fit line
+                        h(x) = theta0 + theta1 * x      (straight line)
+            m       -> buffer size
             
-            OLAT.calcProcessGain();
-            OLAT.calcPIGain();
-
-        end_if;
-
+    Parameters:
+        xBuffer 	: ^REAL;    Pointer to array of input variables (independent variable)
+        yBuffer 	: ^REAL;    Pointer to array of output variables (dependent variable)
+        thetaBuffer : ^REAL;    Pointer to array of theta values (Must be 2 values at the moment)
+        bufferSize 	: DINT;     Number of samples
        
-    end_if;
-    
-    
-    if OLATValidate1.writeInProgress() then
-        OLATValidate1.writeToFile();
-    end_if;
-
-
-	state := READY;
-
-END_FUNCTION
-
-
-
-(*****************************
-*  General functions
-*****************************)
-
-
-FUNCTION GainControl::isShotInProgress
-	VAR_OUTPUT
-		OutParam 	: BOOL;
-	END_VAR
-    
-    if IMPProfiler.CurStep > 0 then
-        flag_shotInProgress := TRUE;
-        OutParam := TRUE;
-    else
-        if flag_shotInProgress then
-            flag_shotInProgress := FALSE;
-            flag_endOfShot      := TRUE;
-        end_if;
-        OutParam := FALSE;
-    end_if;
-END_FUNCTION
-
-
-FUNCTION GainControl::readLiveData
-   
-    // clients
-    cycleTime                           := cycleTime.Read();
-    screwTravel                         := screwTravel.Read();
-    
-    // set values
-    liveValues[SWITCH_TYPE_TIME]        := cycleTime;
-    liveValues[SWITCH_TYPE_TRAVEL]      := screwTravel;
-    liveValues[SWITCH_TYPE_STEP]        := IMPProfiler.CurStep;
-    liveValues[SWITCH_TYPE_PERCENT]     := IMPProfiler.PctOfStep.Read();
-
-END_FUNCTION
-
-FUNCTION GainControl::resetOutputs
-    sumFeedForward(0);         
-    setGainsFor(NIL); 
-END_FUNCTION
-
-
-FUNCTION GainControl::setGainsFor
+    Ouputs:
+        OutParam    : REAL;     MSE. If 0, then there is no error between your predicted value and actual value.  
+        
+*)
+FUNCTION GLOBAL Statistics::meanSquaredError
 	VAR_INPUT
-		phase 	: ^void;
-	END_VAR
-    
-    if phase <> NIL then
-        Kp  := phase^$GainPhase.Kp;
-        Ki  := phase^$GainPhase.Ki;
-        Ki2 := phase^$GainPhase.Ki2;
-        Kd  := phase^$GainPhase.Kd;
-    else
-        Kp  := thePhaseOf[PHASE_1]^$GainPhase.Kp;
-        Ki  := thePhaseOf[PHASE_1]^$GainPhase.Ki;
-        Ki2 := thePhaseOf[PHASE_1]^$GainPhase.Ki2;
-        Kd  := thePhaseOf[PHASE_1]^$GainPhase.Kd;
-    end_if;
-    
-    
-END_FUNCTION
-
-FUNCTION GainControl::sumFeedForward
-	VAR_INPUT
-		feedforward 	: DINT;
-	END_VAR
-    
-    feedForwardOffset := feedForwardOffset.Read();
-    
-    CASE controlMode OF
-    GAIN_MODE_REGULAR:
-        FeedForwardOut := feedForwardOffset;
-    GAIN_MODE_MANUAL,
-    GAIN_MODE_AUTO:
-        
-        FeedForwardOut := feedforward + feedForwardOffset;
-
-    else
-        FeedForwardOut := feedForwardOffset;
-    END_CASE;
-    
-END_FUNCTION
-
-(*****************************
-*  Manual functions
-*****************************)
-
-FUNCTION GainControl::manualStateMachine
-    VAR
-    	phase : ^GainPhase;
-    END_VAR
-    
-    
-    if currentPhase >= PHASE_3 then
-        currentPhase := PHASE_3;
-    end_if;
-
-    phase := thePhaseOf[currentPhase]$^GainPhase;
-    
-    case manualState of
-    GAIN_IDLE_STATE:  
-        // spare state that is not being used. 
-        manualState     := SET_GAIN_DATA_STATE;
-        
-    SET_GAIN_DATA_STATE: 
-        
-        if phase^.switchLimit() > 0 then
-            setGainsFor(thePhaseOf[currentPhase]);
-            sumFeedForward(phase^.startFeedForward);
-            manualState     := WAIT_FOR_LIMIT;
-        else
-            currentPhase    += NEXT_PHASE;
-        end_if;
-        
-        if currentPhase >= PHASE_3 then
-            currentPhase    := PHASE_3;
-            manualState     := BUMPLESS_STATE;
-        end_if;
-        
-    WAIT_FOR_LIMIT: 
-    
-        readLiveData();
-        if phase^.limitHasBeenReached(#liveValues[0], controlMode) then
-            currentPhase    += NEXT_PHASE;
-            manualState     := SET_GAIN_DATA_STATE;
-            
-        end_if;
-        
-    BUMPLESS_STATE:
-        
-        IMPProfiler.bumplessTransfer(to_real(FeedForwardOut), to_real(phase^.Kp), to_real(phase^.Kd));
-        setGainsFor(thePhaseOf[PHASE_3]);
-        sumFeedForward(0);
-        manualState := FINAL_STATE;
-    
-    FINAL_STATE:
-        
-        // Wait for end of shot
-        
-    end_case;
-    
-END_FUNCTION
-
-
-FUNCTION GainControl::resetManualStateMachine
-    
-    manualState     := SET_GAIN_DATA_STATE;
-    currentPhase    := PHASE_1;
-    
-    // necessary? prob not
-    GainPhase3.clearAllButGains();
-    
-    // moves timeLimit server into actual timelime
-    // TODO
-    GainPhase1.resetTimeLimit();
-    GainPhase2.resetTimeLimit();
-    GainPhase3.resetTimeLimit();
-    
-    resetOutputs();           
-
-END_FUNCTION
-
-(*****************************
-*  Auto functions
-*****************************)
-
-FUNCTION GainControl::autoStateMachine
-    VAR
-    	phase : ^GainPhase;
-    END_VAR
-    
-    
-    if currentPhase >= LAST_PHASE then
-        currentPhase := LAST_PHASE;
-    end_if;
-
-    //phase := theOLPhaseOf[currentPhase]$^GainPhase;
-    phase$^void := theOLPhaseOf[currentPhase];
-    
-    case autoState of
-    GAIN_IDLE_STATE:  
-        // spare state that is not being used. 
-        autoState := SET_GAIN_DATA_STATE;
-    
-    SET_GAIN_DATA_STATE:
-
-        setGainsFor(theOLPhaseOf[currentPhase]);
-        sumFeedForward(phase^.getActualFeedForward());
-        
-        autoState := WAIT_FOR_LIMIT;
-        
-    WAIT_FOR_LIMIT:
-        readLiveData();
-        // wait for limit to be reached
-        if phase^.limitHasBeenReached(#liveValues[0], controlMode) then
-
-            if phase^.whichLimitReached() = phase^.switchType then
-                // success
-                phase^.setEndIndex(liveValues[SWITCH_TYPE_TIME]);
-                
-                updateNextAutoPhase(currentPhase);
- 
-                currentPhase                    += NEXT_PHASE;
-                autoState                       := SET_GAIN_DATA_STATE;
-                
-            elsif phase^.whichLimitReached() = SWITCH_TYPE_TIME then
-                
-                // try again
-                if phase^.anotherAttemptIsAllowed() then
-                    phase^.updateNextAttempt();
-                    autoState := SET_GAIN_DATA_STATE; 
-                else
-                    // fail go to last phase
-                    currentPhase    := LAST_PHASE;
-                    
-                end_if;
-            end_if;
-            
-            if currentPhase >= LAST_PHASE then
-                currentPhase    := LAST_PHASE;
-                autoState       := BUMPLESS_STATE;
-            end_if;
-            
-        end_if;
-
-    BUMPLESS_STATE:
-        
-        IMPProfiler.bumplessTransfer(to_real(FeedForwardOut), to_real(phase^.Kp), to_real(phase^.Kd));
-        setGainsFor(theOLPhaseOf[LAST_PHASE]);
-        sumFeedForward(0);
-        autoState := FINAL_STATE;
-    
-    FINAL_STATE:
-        
-
-        
-    end_case;
-
-END_FUNCTION
-
-
-FUNCTION GainControl::resetAutoStateMachine
-    
-    autoState               := SET_GAIN_DATA_STATE;
-    currentPhase            := PHASE_1;
-    
-    
-    OpenLoopPhase1.resetAttemptCounter();
-    OpenLoopPhase2.resetAttemptCounter();
-    OpenLoopPhase3.resetAttemptCounter();
-    
-    OpenLoopPhase1.switchType := SWITCH_TYPE_PERCENT;
-    OpenLoopPhase2.switchType := SWITCH_TYPE_PERCENT;
-    
-    
-    resetOutputs();
-    
-END_FUNCTION
-
-
-FUNCTION VIRTUAL GLOBAL GainControl::resetAuto::Write
-	VAR_INPUT
-		input (EAX) 	: DINT;
+		xBuffer 	: ^REAL;
+		yBuffer 	: ^REAL;
+		thetaBuffer : ^REAL;
+		bufferSize 	: DINT;
 	END_VAR
 	VAR_OUTPUT
-		result (EAX) 	: DINT;
-	END_VAR
-
-	resetAuto := input;
-    
-    if resetAuto = 1 then
-        resetAutoStateMachine();
-        OpenLoopPhase1.resetAutoActuals();
-        OpenLoopPhase2.resetAutoActuals();
-        OpenLoopPhase3.resetAutoActuals();
-        flag_phase2Initialized  := FALSE;
-        resetAuto := 0;
-    end_if;
-
-    
-	result := resetAuto;
-
-END_FUNCTION
-
-
-
-
-
-FUNCTION GainControl::updateNextAutoPhase
-	VAR_INPUT
-		currentPhaseNumber 	: DINT;
+		cost 	    : REAL;
 	END_VAR
     VAR
-    	source      : ^GainPhase;
-        destination : ^GainPhase;
+    	sum         : LREAL;
+        i           : DINT;
+        theta0      : REAL;
+        theta1      : REAL;
+        xVal        : REAL;
+        yVal        : REAL;
     END_VAR
     
-    if currentPhaseNumber >= LAST_PHASE - 1 then
+    if xBuffer = NIL | yBuffer = NIL | thetaBuffer = NIL then
+        cost := ERROR_INVALID_POINTER_REFERENCE;
+        return;
+    elsif bufferSize < MIN_BUFFER_SIZE then
+        cost := ERROR_INVALID_BUFFER_SIZE;
         return;
     end_if;
     
-    source$^void        := theOLPhaseOf[currentPhase];
-    destination$^void   := theOLPhaseOf[currentPhase + 1];
+    // get theta values
+    theta0 := thetaBuffer^;
+    theta1 := (thetaBuffer + sizeof(REAL))^;
     
-    if source = NIL | destination = NIL then
-        return;
-    end_if;
+    sum := 0.0;
     
-    // This function only updates Phase 2 based on Phase 1's findings
-    // If Phase 2 was found, then nothing is updated.
-    // This requires "reset" to be pressed a lot. 
-    // TODO: may come with update to automated step process
-    // Find a better way to update without the need to reset "openLoopSuccess"
+    // Sum error squared
+    FOR i := 0 TO bufferSize - 1 DO
+    
+        xVal := (xBuffer + i*sizeof(REAL))^;
+        yVal := (yBuffer + i*sizeof(REAL))^;
+        sum += to_lreal((theta0 + (theta1 * xVal) - yVal))**2;
+        
+    END_FOR;
+    
+    // divide by 2 * num samples
+    cost := to_real(sum / to_lreal(2 * bufferSize));
 
-    destination^.setStartIndex(liveValues[SWITCH_TYPE_TIME] + 1);
-    
-    if destination^.openLoopSuccess() then
-        return;
-    end_if;
-    
-    if source^.openLoopSuccess() & !!flag_phase2Initialized then
-        // This is the first time phase 2 is being updated after a phase 1 success
-        flag_phase2Initialized := TRUE;
-        destination^.startFeedForward       := to_dint(to_real(source^.getActualFeedForward()) * (to_real(feedForwardMultiplier) / PERCENT_DECIMAL));
-    else
-        // We want phase 2 to remember where phase 2 was last shot.
-        destination^.startFeedForward       := destination^.getActualFeedForward();
-    end_if;
-    
-    destination^.percentPressureLimit   := to_dint(to_real(source^.percentPressureLimit) * (to_real(pressureMultiplier) / PERCENT_DECIMAL));
-    destination^.stepFeedForward        := source^.stepFeedForward;
-    destination^.timeLimit              := source^.timeLimitStep + liveValues[SWITCH_TYPE_TIME];
-    destination^.timeLimitStep          := source^.timeLimitStep;
-    destination^.attemptsAllowed        := source^.attemptsAllowed;
-    
-    destination^.resetAutoActuals();
-    
 END_FUNCTION
 
-
-FUNCTION VIRTUAL GLOBAL GainControl::testFunc::Write
+(*
+    Standard Deviation
+    
+    Calculates the standard deviation of a buffer of values
+    
+    Uncorrected (Population)
+    sigma = sqrt ( 1/(N) SUM_i (X(i) - mean(X))^2 )
+    
+    Corrected (Sample)
+    sigma = sqrt ( 1/(N-1) SUM_i (X(i) - mean(X))^2 )
+    
+    Parameters:
+        buffer 	    : ^REAL;    buffer of values
+		bufferSize 	: DINT;     size of the buffer
+        mu 	        : REAL;     mean of the buffer
+        corrected 	: BOOL;     sample or corrected std dev
+                                TRUE    = (N-1)
+                                FALSE   = (N)
+        
+    Output:
+        sigma 	    : REAL;     the standard deviation
+    
+*)
+FUNCTION GLOBAL Statistics::standardDeviation
 	VAR_INPUT
-		input (EAX) 	: DINT;
+		buffer 	    : ^REAL;
+		bufferSize 	: DINT;
+		mu 	        : REAL;
+		corrected 	: BOOL;
 	END_VAR
 	VAR_OUTPUT
-		result (EAX) 	: DINT;
+		sigma 	    : REAL;
 	END_VAR
-
-	testFunc := input;
+    VAR
+        sum         : REAL;
+        i           : DINT;
+    END_VAR
     
-    case testFunc of
-    1:
-        //initializeOpenLoopAutoTune();
-    end_case;
+    if buffer = NIL then
+        sigma := ERROR_INVALID_POINTER_REFERENCE;
+        return;
+    elsif corrected & bufferSize < MIN_BUFFER_SIZE_STD_DEV_SAMPLE then
+        sigma := ERROR_INVALID_BUFFER_SIZE;
+        return;
+    elsif !!corrected & bufferSize < MIN_BUFFER_SIZE then
+        sigma := ERROR_INVALID_BUFFER_SIZE;
+        return;
+    end_if;
+    
+    sum := 0.0;
+    
+    for i := 0 to bufferSize - 1 do
+        sum += ((buffer + i * sizeof(REAL))^ - mu)**2;
+    end_for;
+    
+    if corrected then
+        bufferSize -= 1;
+    end_if;
 
-	result := testFunc;
+    sigma := sqrt((1.0 / to_real(bufferSize)) * sum);
+
+END_FUNCTION
+
+(*
+    Standardization
+    
+    Normalizes a buffer using the mean and std deviation.
+    Used to scale multiple buffers to the same scale based on the data in the buffer.
+    Resulting values will be in standard deviations from the mean of the input data.
+    
+    z = (x - mu) / sigma
+    
+    where   z -> nomalized value
+            x -> input value
+            mu -> mean
+            sigma -> std dev
+              
+    Parameters:
+        buffer 	    : ^REAL;    Values to be scaled. values are modified.
+		bufferSize 	: DINT;     Size of the buffer
+		mu 	        : ^REAL;    output value of the mean
+		sigma 	    : ^REAL;    output value of the std dev.
+*)
+FUNCTION GLOBAL Statistics::standardization
+	VAR_INPUT
+		buffer 	    : ^REAL;
+		bufferSize 	: DINT;
+		mu 	        : ^REAL;
+		sigma 	    : ^REAL;
+	END_VAR
+	VAR_OUTPUT
+		OutParam 	: DINT;
+	END_VAR
+    VAR
+        i           : DINT;
+    END_VAR
+    
+    if buffer = NIL | mu = NIL | sigma = NIL then
+        OutParam := ERROR_INVALID_POINTER_REFERENCE;
+        return;
+    else
+        OutParam := ERROR_NONE;
+    end_if;
+
+    mu^     := mean(buffer, bufferSize);
+    sigma^  := standardDeviation(buffer, bufferSize, mu^, FALSE);
+    
+    // if the std dev is 0, then all values in buffer are identical.
+    // This would yield 0/0 for all values. 
+    if sigma^ = 0.0 then    
+        OutParam := ERROR_STANDARDIZATION_FAIL;
+        return;
+    end_if;
+
+    for i := 0 to bufferSize - 1 do
+        (buffer + i * sizeof(REAL))^ := ((buffer + i * sizeof(REAL))^ - mu^) / sigma^;
+    end_for;
 
 END_FUNCTION
